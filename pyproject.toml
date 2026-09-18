@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iwencai-cli"
+version = "1.0.0"
+description = "iWenCai 爱问财自然语言选股 CLI — 通过 Playwright 驱动本机 Chrome 抓取问财结果"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "chenhuijian" }]
+keywords = [
+  "iwencai",
+  "iWenCai",
+  "问财",
+  "问财CLI",
+  "同花顺问财",
+  "同花顺问财CLI",
+  "同花顺",
+  "选股",
+  "股票",
+  "A股",
+  "A股选股",
+  "股票筛选",
+  "量化",
+  "量化选股",
+  "自然语言选股",
+  "stock screener",
+  "stock selection",
+  "china stocks",
+  "cli",
+  "playwright",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: Apache Software License",
+  "Natural Language :: Chinese (Simplified)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "playwright>=1.30",
+]
+
+[project.optional-dependencies]
+table = [
+  "tabulate>=0.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/chenhuijian/iwencai-py"
+Repository = "https://github.com/chenhuijian/iwencai-py"
+
+[project.scripts]
+iwencai-query = "iwencai_cli.cli:main"
