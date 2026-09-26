@@ -48,7 +48,9 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
+  "fastapi>=0.100",
   "playwright>=1.30",
+  "uvicorn>=0.23",
 ]
 
 [project.optional-dependencies]
@@ -62,3 +64,4 @@ Repository = "https://github.com/chenhuijian/iwencai-py"
 
 [project.scripts]
 iwencai-query = "iwencai_cli.cli:main"
+iwencai-server = "iwencai_cli.server:main"

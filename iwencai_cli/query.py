@@ -3,10 +3,17 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote
 
-from . import DEFAULT_PROFILE_DIR
+from .auth import (
+    has_saved_auth,
+    launch_persistent_context,
+    login,
+    login_required,
+    resolve_auth_paths,
+    save_auth_state,
+)
 
 
-RESULT_URL_TEMPLATE = "https://www.iwencai.com/unifiedwap/result?w={q}&querytype=stock"
+RESULT_URL_TEMPLATE = "https://www.iwencai.com/screener/result?w={q}&querytype=stock"
 
 SCROLL_TABLES_SCRIPT = """
 () => {
@@ -190,8 +197,11 @@ def query_iwencai(
     *,
     headless: bool = True,
     profile_dir: Optional[str] = None,
+    auth_dir: Optional[str] = None,
+    login_timeout: int = 600,
     wait_ms: int = 4000,
     max_pages: Optional[int] = None,
+    allow_login: bool = True,
 ) -> Dict[str, Any]:
     """Open the iWenCai result page and scrape the stock table from the DOM.
 
@@ -202,59 +212,84 @@ def query_iwencai(
     except ImportError:
         raise RuntimeError("Playwright 未安装，请加 --install-playwright")
 
-    profile_dir = profile_dir or str(DEFAULT_PROFILE_DIR)
     url = RESULT_URL_TEMPLATE.format(q=quote(question))
 
     with sync_playwright() as p:
-        launch_kwargs = dict(
-            user_data_dir=profile_dir,
-            headless=headless,
-            viewport={"width": 1400, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/147.0.0.0 Safari/537.36"
-            ),
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-            ],
-            ignore_default_args=["--enable-automation"],
+        auth_paths = resolve_auth_paths(
+            auth_dir=auth_dir,
+            profile_dir=profile_dir,
         )
-        # Prefer the user's real Chrome if installed, fall back to bundled Chromium
-        try:
-            ctx = p.chromium.launch_persistent_context(channel="chrome", **launch_kwargs)
-        except Exception:
-            ctx = p.chromium.launch_persistent_context(**launch_kwargs)
+        if not has_saved_auth(auth_dir, profile_dir):
+            if not allow_login:
+                raise RuntimeError("问财账号未登录，请先在账号管理页面登录")
+            auth_paths = login(
+                p,
+                auth_dir=auth_dir,
+                profile_dir=profile_dir,
+                timeout=login_timeout,
+            )
 
-        # Strip the navigator.webdriver flag on every page
-        ctx.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-            "window.chrome = window.chrome || { runtime: {} };"
-        )
-
-        try:
-            page_obj = ctx.new_page()
-            page_obj.goto(url, wait_until="load", timeout=30000)
-
-            # Wait for either the results table or a "no results" message
+        rows_data: Optional[Dict[str, Any]] = None
+        for attempt in range(2):
+            ctx = launch_persistent_context(
+                p.chromium,
+                auth_paths,
+                headless=headless,
+            )
+            relogin_required = False
             try:
-                page_obj.wait_for_selector(
-                    "table, text=未选出, text=抱歉",
-                    timeout=20000,
-                )
-            except Exception:
-                pass
-            page_obj.wait_for_timeout(wait_ms)
+                page_obj = ctx.pages[0] if ctx.pages else ctx.new_page()
+                page_obj.goto(url, wait_until="load", timeout=30000)
 
-            # Detect "no results"
-            body_text = page_obj.inner_text("body")
-            if "未选出" in body_text or "抱歉，未选出" in body_text:
-                return {"rows": [], "count": 0, "headers": [], "raw_text": body_text[:500]}
+                # Wait for either the results table or a "no results" message
+                try:
+                    page_obj.wait_for_selector(
+                        "table, text=未选出, text=抱歉",
+                        timeout=20000,
+                    )
+                except Exception:
+                    pass
+                page_obj.wait_for_timeout(wait_ms)
 
-            rows_data = _collect_result_pages(page_obj, wait_ms, max_pages)
-        finally:
-            ctx.close()
+                if login_required(page_obj):
+                    if attempt == 0:
+                        if not allow_login:
+                            raise RuntimeError("问财登录态已失效，请切换账号或重新登录")
+                        relogin_required = True
+                    else:
+                        raise RuntimeError(
+                            "问财登录态已失效，请先在账号管理页面重新登录"
+                        )
+                else:
+                    # Detect "no results"
+                    body_text = page_obj.inner_text("body")
+                    if "未选出" in body_text or "抱歉，未选出" in body_text:
+                        return {
+                            "rows": [],
+                            "count": 0,
+                            "headers": [],
+                            "raw_text": body_text[:500],
+                        }
+
+                    rows_data = _collect_result_pages(page_obj, wait_ms, max_pages)
+                    save_auth_state(ctx, auth_paths)
+            finally:
+                try:
+                    ctx.close()
+                except Exception:
+                    # 浏览器被手动关闭时，保留原始查询或登录失效错误。
+                    pass
+
+            if not relogin_required:
+                break
+            if not allow_login:
+                raise RuntimeError("问财登录态已失效，请切换账号或重新登录")
+            auth_paths = login(
+                p,
+                auth_dir=auth_dir,
+                profile_dir=profile_dir,
+                timeout=login_timeout,
+            )
 
     if not rows_data:
         return {"rows": [], "count": 0, "headers": []}
