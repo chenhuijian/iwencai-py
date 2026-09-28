@@ -157,6 +157,101 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     .message.error { color: var(--red); }
     .footnote { color: var(--muted); font-size: 12px; margin-top: 12px; }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(1, 4, 9, .72);
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity .16s ease, visibility .16s ease;
+    }
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+      visibility: visible;
+    }
+    .modal {
+      width: min(100%, 440px);
+      background: var(--panel);
+      border: 1px solid #444c56;
+      border-radius: 8px;
+      box-shadow: 0 18px 55px rgba(0, 0, 0, .45);
+      transform: translateY(8px) scale(.98);
+      transition: transform .16s ease;
+    }
+    .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
+    .modal-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 20px 20px 14px;
+    }
+    .modal-mark {
+      display: grid;
+      flex: 0 0 32px;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid #388bfd;
+      border-radius: 6px;
+      color: var(--accent-dark);
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .modal-mark.success { border-color: rgba(63, 185, 80, .7); color: var(--green); }
+    .modal-mark.failure { border-color: rgba(248, 81, 73, .7); color: var(--red); }
+    .modal-title { font-size: 16px; font-weight: 600; line-height: 1.35; }
+    .modal-subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .modal-body { padding: 0 20px 18px; }
+    .modal-copy { color: var(--muted); margin-bottom: 12px; }
+    .modal-details {
+      display: grid;
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--line);
+    }
+    .modal-detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 12px;
+      background: #0d1117;
+    }
+    .modal-detail-label { color: var(--muted); }
+    .modal-detail-value { max-width: 62%; overflow: hidden; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-detail-value.warning { color: var(--yellow); }
+    .modal-detail-value.error { color: var(--red); white-space: normal; overflow-wrap: anywhere; }
+    .modal-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent-dark);
+    }
+    .modal-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #30363d;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: modal-spin .8s linear infinite;
+    }
+    @keyframes modal-spin { to { transform: rotate(360deg); } }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 14px 20px 20px;
+      border-top: 1px solid var(--line);
+    }
+    .modal-actions button { min-width: 88px; }
+
     @media (max-width: 760px) {
       .shell { width: min(100% - 24px, 1440px); padding-top: 18px; }
       header { display: block; }
@@ -169,6 +264,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       .form-grid button { width: 100%; }
       .summary { grid-template-columns: 1fr 1fr; }
       .panel { padding: 12px; }
+      .modal-detail-value { max-width: 58%; }
     }
   </style>
 </head>
@@ -229,9 +325,29 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
           </tbody>
         </table>
       </div>
-      <p class="footnote">每个账号使用独立的浏览器 profile 和登录态。第一个添加并登录的账号会自动成为默认主账号；登录、检查和查询操作会排队执行，请等待操作完成。</p>
+      <p class="footnote">每个账号使用独立的浏览器 profile 和登录态。登录检查只验证登录态，不消耗次数；测试查询会真实查询“上证50”，并消耗 1 次额度。</p>
     </section>
   </main>
+
+  <div class="modal-backdrop" id="query-modal-backdrop" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="query-modal-title">
+      <div class="modal-header">
+        <div class="modal-mark" id="query-modal-mark" aria-hidden="true">?</div>
+        <div>
+          <div class="modal-title" id="query-modal-title">确认测试问财查询</div>
+          <div class="modal-subtitle" id="query-modal-subtitle">将使用真实浏览器访问问财结果页</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p class="modal-copy" id="query-modal-copy">这次测试用于确认当前账号的查询链路是否正常，测试结果不会被缓存。</p>
+        <div class="modal-details" id="query-modal-details"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="query-modal-cancel">取消</button>
+        <button class="primary" type="button" id="query-modal-confirm">开始测试</button>
+      </div>
+    </section>
+  </div>
 
   <script>
     const rows = document.getElementById("account-rows");
@@ -239,6 +355,17 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     const serviceState = document.getElementById("service-state");
     const currentAccount = document.getElementById("current-account");
     const currentQuery = document.getElementById("current-query");
+    const queryModalBackdrop = document.getElementById("query-modal-backdrop");
+    const queryModalMark = document.getElementById("query-modal-mark");
+    const queryModalTitle = document.getElementById("query-modal-title");
+    const queryModalSubtitle = document.getElementById("query-modal-subtitle");
+    const queryModalCopy = document.getElementById("query-modal-copy");
+    const queryModalDetails = document.getElementById("query-modal-details");
+    const queryModalCancel = document.getElementById("query-modal-cancel");
+    const queryModalConfirm = document.getElementById("query-modal-confirm");
+    let queryModalResolve = null;
+    let queryModalAccountName = "";
+    let queryModalBusy = false;
     let accounts = [];
 
     function escapeHtml(value) {
@@ -309,7 +436,8 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
           <td>
             <div class="actions">
               <button data-action="login" data-id="${escapeHtml(account.id)}">登录</button>
-              <button data-action="check" data-id="${escapeHtml(account.id)}">检查</button>
+              <button data-action="check" data-id="${escapeHtml(account.id)}">登录检查</button>
+              <button data-action="test-query" data-id="${escapeHtml(account.id)}">测试查询</button>
               <button data-action="logout" data-id="${escapeHtml(account.id)}">退出</button>
               <button data-action="quota" data-id="${escapeHtml(account.id)}">设置剩余</button>
               ${account.is_default ? "" : `<button data-action="default" data-id="${escapeHtml(account.id)}">切换到此账号</button>`}
@@ -323,6 +451,130 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     function showMessage(text, isError = false) {
       message.textContent = text;
       message.className = isError ? "message error" : "message";
+    }
+
+    function closeQueryModal(confirmed) {
+      if (queryModalBusy) return;
+      queryModalBackdrop.classList.remove("open");
+      queryModalBackdrop.setAttribute("aria-hidden", "true");
+      if (queryModalResolve) queryModalResolve(confirmed);
+      queryModalResolve = null;
+    }
+
+    function showQueryLoading(account) {
+      queryModalBusy = true;
+      queryModalMark.className = "modal-mark";
+      queryModalMark.textContent = "...";
+      queryModalTitle.textContent = "正在测试问财查询";
+      queryModalSubtitle.textContent = "请稍候，正在访问问财结果页";
+      queryModalCopy.textContent = "查询进行中，请不要关闭服务窗口或重复点击操作。";
+      queryModalDetails.innerHTML = `
+        <div class="modal-detail">
+          <span class="modal-detail-label">使用账号</span>
+          <span class="modal-detail-value">${escapeHtml(account.name)}</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">测试关键词</span>
+          <span class="modal-detail-value">上证50</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">当前状态</span>
+          <span class="modal-detail-value">
+            <span class="modal-loading"><span class="modal-spinner"></span>正在查询</span>
+          </span>
+        </div>`;
+      queryModalCancel.hidden = true;
+      queryModalConfirm.disabled = true;
+      queryModalConfirm.textContent = "查询中...";
+    }
+
+    function openQueryModal() {
+      queryModalBackdrop.classList.add("open");
+      queryModalBackdrop.setAttribute("aria-hidden", "false");
+      queryModalConfirm.focus();
+    }
+
+    function confirmTestQuery(account) {
+      return new Promise((resolve) => {
+        queryModalResolve = resolve;
+        queryModalAccountName = account.name;
+        queryModalMark.className = "modal-mark";
+        queryModalMark.textContent = "?";
+        queryModalTitle.textContent = "确认测试问财查询";
+        queryModalSubtitle.textContent = "将使用真实浏览器访问问财结果页";
+        queryModalCopy.textContent = "这次测试用于确认当前账号的查询链路是否正常，测试结果不会被缓存。";
+        queryModalDetails.innerHTML = `
+          <div class="modal-detail">
+            <span class="modal-detail-label">测试关键词</span>
+            <span class="modal-detail-value">上证50</span>
+          </div>
+          <div class="modal-detail">
+            <span class="modal-detail-label">使用账号</span>
+            <span class="modal-detail-value">${escapeHtml(account.name)}</span>
+          </div>
+          <div class="modal-detail">
+            <span class="modal-detail-label">额度影响</span>
+            <span class="modal-detail-value warning">消耗 1 次</span>
+          </div>`;
+        queryModalCancel.hidden = false;
+        queryModalConfirm.disabled = false;
+        queryModalConfirm.textContent = "开始测试";
+        openQueryModal();
+      });
+    }
+
+    function showQueryResult(result) {
+      queryModalResolve = null;
+      queryModalBusy = false;
+      queryModalMark.className = "modal-mark success";
+      queryModalMark.textContent = "✓";
+      queryModalTitle.textContent = "查询测试完成";
+      queryModalSubtitle.textContent = "问财查询链路运行正常";
+      queryModalCopy.textContent = "已真实访问问财结果页，下面是本次测试的结果。";
+      queryModalDetails.innerHTML = `
+        <div class="modal-detail">
+          <span class="modal-detail-label">使用账号</span>
+          <span class="modal-detail-value">${escapeHtml(result.account_name)}</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">返回结果</span>
+          <span class="modal-detail-value">${result.count} 条</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">抓取页数</span>
+          <span class="modal-detail-value">${result.pages} 页</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">剩余次数</span>
+          <span class="modal-detail-value">${result.quota.remaining} 次</span>
+        </div>`;
+      queryModalCancel.hidden = true;
+      queryModalConfirm.disabled = false;
+      queryModalConfirm.textContent = "关闭";
+      openQueryModal();
+    }
+
+    function showQueryFailure(account, errorMessage) {
+      queryModalResolve = null;
+      queryModalBusy = false;
+      queryModalMark.className = "modal-mark failure";
+      queryModalMark.textContent = "!";
+      queryModalTitle.textContent = "查询测试失败";
+      queryModalSubtitle.textContent = "问财查询链路没有正常完成";
+      queryModalCopy.textContent = "本次测试已经发起，具体原因如下。请根据提示处理后再试。";
+      queryModalDetails.innerHTML = `
+        <div class="modal-detail">
+          <span class="modal-detail-label">使用账号</span>
+          <span class="modal-detail-value">${escapeHtml(account.name)}</span>
+        </div>
+        <div class="modal-detail">
+          <span class="modal-detail-label">失败原因</span>
+          <span class="modal-detail-value error">${escapeHtml(errorMessage)}</span>
+        </div>`;
+      queryModalCancel.hidden = true;
+      queryModalConfirm.disabled = false;
+      queryModalConfirm.textContent = "关闭";
+      openQueryModal();
     }
 
     async function request(url, options = {}) {
@@ -376,6 +628,13 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
         } else if (action === "check") {
           await request(`/api/accounts/${encodeURIComponent(id)}/check`, { method: "POST", body: "{}" });
           showMessage(`${account.name} 登录状态已更新`);
+        } else if (action === "test-query") {
+          if (!await confirmTestQuery(account)) return;
+          const result = await request(
+            `/api/accounts/${encodeURIComponent(id)}/test-query`,
+            { method: "POST", body: "{}" },
+          );
+          showQueryResult(result);
         } else if (action === "logout") {
           if (!confirm(`确定清理账号“${account.name}”的登录态吗？`)) return;
           await request(`/api/accounts/${encodeURIComponent(id)}/logout`, { method: "POST", body: "{}" });
@@ -408,7 +667,12 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
         }
         await loadAccounts();
       } catch (error) {
-        showMessage(error.message, true);
+        if (action === "test-query") {
+          showQueryFailure(account, error.message);
+          await loadAccounts();
+        } else {
+          showMessage(error.message, true);
+        }
       } finally {
         if (button) {
           button.disabled = false;
@@ -451,6 +715,25 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     });
 
     document.getElementById("refresh-button").addEventListener("click", loadAccounts);
+    queryModalCancel.addEventListener("click", () => closeQueryModal(false));
+    queryModalConfirm.addEventListener("click", () => {
+      if (!queryModalResolve) {
+        closeQueryModal(false);
+        return;
+      }
+      const resolve = queryModalResolve;
+      queryModalResolve = null;
+      showQueryLoading({ name: queryModalAccountName });
+      resolve(true);
+    });
+    queryModalBackdrop.addEventListener("click", (event) => {
+      if (event.target === queryModalBackdrop) closeQueryModal(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && queryModalBackdrop.classList.contains("open")) {
+        closeQueryModal(false);
+      }
+    });
     rows.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
       if (button) accountAction(button.dataset.action, button.dataset.id);

@@ -145,7 +145,8 @@ POST /api/accounts/{account_id}/login
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `POST` | `/api/accounts/{account_id}/login` | 打开该账号的 Chrome 登录窗口 |
-| `POST` | `/api/accounts/{account_id}/check` | 检查并刷新该账号登录状态 |
+| `POST` | `/api/accounts/{account_id}/check` | 检查并刷新该账号登录状态，不消耗查询次数 |
+| `POST` | `/api/accounts/{account_id}/test-query` | 使用“上证50”执行一次真实查询，验证查询链路，会消耗 1 次额度 |
 | `POST` | `/api/accounts/{account_id}/logout` | 清理该账号登录态 |
 | `POST` | `/api/accounts/{account_id}/default` | 设为默认账号 |
 | `GET` | `/api/accounts/{account_id}/quota` | 查看该账号今日额度 |
@@ -184,6 +185,14 @@ GET /api/quota?account_id=account-abc123
 ```
 
 一次真正开始执行的自然语言查询扣除该账号 `1` 次额度；自动翻页不额外扣除。登录、状态检查、健康检查和文档接口不扣额度。查询在队列满或参数错误时不会扣额度；已经开始执行但失败的查询仍按一次计数。
+
+如果需要验证问财查询链路，而不只是验证 Cookie，可以调用：
+
+```http
+POST /api/accounts/{account_id}/test-query
+```
+
+该接口固定查询“上证50”，只抓取 1 页，成功或失败都表示真实走过问财查询流程，并按一次查询计入额度；登录态检查仍使用 `/api/accounts/{account_id}/check`，不消耗额度。
 
 查询结果不做缓存。即使两次请求的 `question` 完全相同，服务也会分别访问问财结果页并返回当时的实时结果，同时分别消耗查询额度。`/api/query` 响应带有 `Cache-Control: no-store`，调用方也不应在自己的项目中缓存问财结果。
 

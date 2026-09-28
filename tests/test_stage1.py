@@ -98,6 +98,38 @@ class StageOneAccountTests(unittest.TestCase):
         self.assertEqual(second["rows"], [{"股票代码": "2"}])
         self.assertEqual(self.store.get_quota(account.id)["used"], 2)
 
+    def test_test_query_uses_selected_account_and_consumes_quota(self) -> None:
+        account = self.store.create("待测试账号", quota_limit=2)
+        backup = self.store.create("备用账号", quota_limit=2)
+        self._ready(account)
+        self._ready(backup)
+        calls = []
+
+        def fake_query(question, **kwargs):
+            calls.append((question, kwargs["auth_dir"]))
+            return {
+                "rows": [{"股票代码": "600000"}],
+                "headers": ["股票代码"],
+                "pages": 1,
+            }
+
+        server._query_activity.finish()
+        server._query_throttle.configure(min_interval=0, max_queue=50)
+        try:
+            with patch.object(server, "_account_store", self.store):
+                with patch.object(server, "query_iwencai", side_effect=fake_query):
+                    result = server.test_account_query(account.id)
+        finally:
+            server._query_throttle.configure(min_interval=5, max_queue=50)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["question"], "上证50")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(calls, [("上证50", account.auth_dir)])
+        self.assertEqual(self.store.get_quota(account.id)["used"], 1)
+        self.assertEqual(self.store.get_quota(backup.id)["used"], 0)
+        self.assertFalse(server._query_activity.snapshot()["active"])
+
     def test_zeroing_default_switches_to_ready_account_only(self) -> None:
         preferred = self.store.create("主账号", quota_limit=10)
         ready_backup = self.store.create("已登录备用", quota_limit=10)

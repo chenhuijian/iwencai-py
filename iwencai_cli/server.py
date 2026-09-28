@@ -56,7 +56,10 @@ app.add_middleware(
 @app.middleware("http")
 async def prevent_query_response_caching(request: Request, call_next):
     response = await call_next(request)
-    if request.method == "POST" and request.url.path == "/api/query":
+    if request.method == "POST" and (
+        request.url.path == "/api/query"
+        or request.url.path.endswith("/test-query")
+    ):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -75,6 +78,7 @@ app.state.host = "127.0.0.1"
 app.state.port = 8765
 app.state.min_query_interval = 5.0
 app.state.max_query_queue = 50
+TEST_QUERY = "上证50"
 
 
 class QueryQueueFullError(RuntimeError):
@@ -413,6 +417,71 @@ def check_account(account_id: str) -> dict[str, Any]:
             )
         _account_store.mark_auth(account.id, bool(status["authenticated"]))
     return {"success": True, "account_id": account.id, **status}
+
+
+@app.post("/api/accounts/{account_id}/test-query")
+def test_account_query(account_id: str) -> dict[str, Any]:
+    """Run a small real query to verify the account's iWenCai query path."""
+    try:
+        with _query_throttle.slot():
+            with _browser_lock:
+                account = _get_account_or_404(account_id)
+                try:
+                    account, quota = _account_store.reserve_query_with_fallback(
+                        account.id,
+                        allow_fallback=False,
+                    )
+                except QuotaExceededError as exc:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=str(exc),
+                        headers={"X-Quota-Reset-At": exc.reset_at},
+                    ) from exc
+                except AccountUnavailableError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+                _query_activity.begin(account.id, account.name, TEST_QUERY)
+                try:
+                    raw = query_iwencai(
+                        TEST_QUERY,
+                        headless=True,
+                        profile_dir=account.profile_dir,
+                        auth_dir=account.auth_dir,
+                        login_timeout=600,
+                        wait_ms=2500,
+                        max_pages=1,
+                        allow_login=False,
+                    )
+                except RuntimeError as exc:
+                    if _is_login_failure(str(exc)):
+                        _account_store.mark_auth(account.id, False)
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                else:
+                    _account_store.mark_auth(account.id, True)
+                    if raw.get("pages", 0) < 1:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="问财查询页面未返回结果表格",
+                        )
+                    rows = parse_results(raw)
+                    return {
+                        "success": True,
+                        "account_id": account.id,
+                        "account_name": account.name,
+                        "question": TEST_QUERY,
+                        "count": len(rows),
+                        "headers": raw.get("headers", []),
+                        "pages": raw.get("pages", 0),
+                        "quota": quota,
+                    }
+                finally:
+                    _query_activity.finish()
+    except QueryQueueFullError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(max(1, round(app.state.min_query_interval)))},
+        ) from exc
 
 
 @app.post("/api/accounts/{account_id}/logout")
