@@ -150,6 +150,7 @@ POST /api/accounts/{account_id}/login
 | `POST` | `/api/accounts/{account_id}/logout` | 清理该账号登录态 |
 | `POST` | `/api/accounts/{account_id}/default` | 设为默认账号 |
 | `GET` | `/api/accounts/{account_id}/quota` | 查看该账号今日额度 |
+| `GET` | `/api/accounts/{account_id}/query-history` | 查看该账号保存的查询语句历史（不包含结果数据） |
 | `PATCH` | `/api/accounts/{account_id}/quota` | 设置该账号今日剩余次数 |
 | `PATCH` | `/api/accounts/{account_id}` | 修改名称、备注或额度 |
 | `DELETE` | `/api/accounts/{account_id}?delete_auth=true` | 删除账号及其独立登录态；删除默认账号时自动切换到其他账号 |
@@ -195,6 +196,8 @@ POST /api/accounts/{account_id}/test-query
 该接口固定查询“上证50”，只抓取 1 页，成功或失败都表示真实走过问财查询流程，并按一次查询计入额度；登录态检查仍使用 `/api/accounts/{account_id}/check`，不消耗额度。
 
 查询结果不做缓存。即使两次请求的 `question` 完全相同，服务也会分别访问问财结果页并返回当时的实时结果，同时分别消耗查询额度。`/api/query` 响应带有 `Cache-Control: no-store`，调用方也不应在自己的项目中缓存问财结果。
+
+管理台从账号操作栏执行查询时，会在查询成功后保存查询语句和时间，历史最多保留最近 100 条；股票结果只返回给当前请求，不会写入历史记录。
 
 未指定 `account_id` 时，服务先使用当前默认账号；如果该账号额度已经用完或登录态失效，会自动从其他“已确认登录且有剩余额度”的账号中选择一个继续执行。调用方也可以在请求中指定 `account_id` 作为优先账号。仅有保存登录态但尚未确认登录的账号不会参与自动切换；查询过程中也不会自动弹出扫码窗口。返回结果中的 `account_id` 和 `account_name` 表示实际执行本次查询的账号，`requested_account_id` 表示优先账号，`account_switched` 表示是否发生了自动切换。
 

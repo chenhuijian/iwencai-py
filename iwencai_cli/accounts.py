@@ -302,6 +302,46 @@ class AccountStore:
             self._save_if_needed_unlocked(accounts, default_id)
             return quota
 
+    def list_query_history(self, account_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            account = self._find_unlocked(self._load_with_default_unlocked()[0], account_id)
+            history_path = Path(account.auth_dir) / "query-history.json"
+            if not history_path.exists():
+                return []
+            try:
+                data = json.loads(history_path.read_text(encoding="utf-8"))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                return []
+            if not isinstance(data, list):
+                return []
+            history = [
+                {
+                    "question": str(item.get("question") or ""),
+                    "created_at": float(item.get("created_at") or 0),
+                }
+                for item in data
+                if isinstance(item, dict) and str(item.get("question") or "").strip()
+            ]
+            return history[-max(1, limit):][::-1]
+
+    def record_query(self, account_id: str, question: str) -> None:
+        normalized_question = question.strip()
+        if not normalized_question:
+            return
+        with self._lock:
+            account = self._find_unlocked(self._load_with_default_unlocked()[0], account_id)
+            history_path = Path(account.auth_dir) / "query-history.json"
+            history = self.list_query_history(account.id, limit=100)[::-1]
+            history.append({"question": normalized_question, "created_at": time.time()})
+            history = history[-100:]
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = history_path.with_suffix(".tmp")
+            temp_path.write_text(
+                json.dumps(history, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temp_path, history_path)
+
     def set_quota_remaining(
         self,
         account_id: str,

@@ -335,6 +335,15 @@ def account_quota(account_id: str) -> dict[str, Any]:
     return {"success": True, "account_id": account_id, "quota": quota}
 
 
+@app.get("/api/accounts/{account_id}/query-history")
+def account_query_history(account_id: str, limit: int = 50) -> dict[str, Any]:
+    try:
+        history = _account_store.list_query_history(account_id, limit=max(1, min(limit, 100)))
+    except AccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="账号不存在") from exc
+    return {"success": True, "account_id": account_id, "history": history}
+
+
 @app.patch("/api/accounts/{account_id}/quota")
 def update_account_quota(
     account_id: str,
@@ -649,6 +658,7 @@ def query(request: QueryRequest) -> dict[str, Any]:
     assert quota is not None
     assert raw is not None
     rows = parse_results(raw)
+    _account_store.record_query(account.id, question)
     return {
         "success": True,
         "requested_account_id": preferred_account.id,

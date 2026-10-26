@@ -97,6 +97,10 @@ class StageOneAccountTests(unittest.TestCase):
         self.assertEqual(first["rows"], [{"股票代码": "1"}])
         self.assertEqual(second["rows"], [{"股票代码": "2"}])
         self.assertEqual(self.store.get_quota(account.id)["used"], 2)
+        self.assertEqual(
+            [item["question"] for item in self.store.list_query_history(account.id)],
+            ["实时查询", "实时查询"],
+        )
 
     def test_test_query_uses_selected_account_and_consumes_quota(self) -> None:
         account = self.store.create("待测试账号", quota_limit=2)
@@ -147,6 +151,16 @@ class StageOneAccountTests(unittest.TestCase):
         self.assertFalse(switched)
         self.assertEqual(default_account.id, ready_backup.id)
         self.assertEqual(unconfirmed_backup.name, "未确认备用")
+
+    def test_query_history_persists_only_query_text(self) -> None:
+        account = self.store.create("历史账号")
+        self.store.record_query(account.id, "上证50")
+        self.store.record_query(account.id, "市盈率小于20")
+
+        history = self.store.list_query_history(account.id)
+
+        self.assertEqual([item["question"] for item in history], ["市盈率小于20", "上证50"])
+        self.assertEqual(set(history[0]), {"question", "created_at"})
 
 
 if __name__ == "__main__":

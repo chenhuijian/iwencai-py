@@ -184,6 +184,26 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       transform: translateY(8px) scale(.98);
       transition: transform .16s ease;
     }
+    .query-run-modal { width: min(100%, 920px); }
+    .query-input {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid #3d444d;
+      border-radius: 4px;
+      padding: 10px;
+      color: var(--ink);
+      background: #0d1117;
+      font: inherit;
+      line-height: 1.5;
+    }
+    .query-history { display: grid; gap: 6px; margin-top: 14px; }
+    .query-history-title { color: var(--muted); font-size: 12px; }
+    .query-history-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 112px; overflow-y: auto; }
+    .query-history-item { height: auto; max-width: 100%; padding: 5px 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+    .query-result-wrap { max-height: 430px; overflow: auto; border: 1px solid var(--line); }
+    .query-result-table { min-width: 560px; font-size: 12px; }
+    .query-result-table th { position: sticky; top: 0; z-index: 1; }
     .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
     .modal-header {
       display: flex;
@@ -265,6 +285,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       .summary { grid-template-columns: 1fr 1fr; }
       .panel { padding: 12px; }
       .modal-detail-value { max-width: 58%; }
+      .query-run-modal { width: 100%; }
     }
   </style>
 </head>
@@ -325,7 +346,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
           </tbody>
         </table>
       </div>
-      <p class="footnote">每个账号使用独立的浏览器 profile 和登录态。登录检查只验证登录态，不消耗次数；测试查询会真实查询“上证50”，并消耗 1 次额度。</p>
+      <p class="footnote">每个账号使用独立的浏览器 profile 和登录态。登录检查只验证登录态，不消耗次数；查询会消耗 1 次额度，历史只保存查询语句。</p>
     </section>
   </main>
 
@@ -349,6 +370,31 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     </section>
   </div>
 
+  <div class="modal-backdrop" id="run-query-modal-backdrop" aria-hidden="true">
+    <section class="modal query-run-modal" role="dialog" aria-modal="true" aria-labelledby="run-query-modal-title">
+      <div class="modal-header">
+        <div class="modal-mark" id="run-query-modal-mark" aria-hidden="true">Q</div>
+        <div>
+          <div class="modal-title" id="run-query-modal-title">执行问财查询</div>
+          <div class="modal-subtitle" id="run-query-modal-subtitle">输入自然语言查询语句，结果仅在本次窗口展示</div>
+        </div>
+      </div>
+      <div class="modal-body" id="run-query-modal-body">
+        <label>查询语句
+          <textarea class="query-input" id="run-query-input" maxlength="500" placeholder="例如：市盈率小于20，市值大于100亿"></textarea>
+        </label>
+        <div class="query-history">
+          <div class="query-history-title">历史查询语句（点击可填入）</div>
+          <div class="query-history-list" id="query-history-list"><span class="secondary">暂无记录</span></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="run-query-modal-cancel">取消</button>
+        <button class="primary" type="button" id="run-query-modal-confirm">执行查询</button>
+      </div>
+    </section>
+  </div>
+
   <script>
     const rows = document.getElementById("account-rows");
     const message = document.getElementById("message");
@@ -363,9 +409,20 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     const queryModalDetails = document.getElementById("query-modal-details");
     const queryModalCancel = document.getElementById("query-modal-cancel");
     const queryModalConfirm = document.getElementById("query-modal-confirm");
+    const runQueryModalBackdrop = document.getElementById("run-query-modal-backdrop");
+    const runQueryModalMark = document.getElementById("run-query-modal-mark");
+    const runQueryModalTitle = document.getElementById("run-query-modal-title");
+    const runQueryModalSubtitle = document.getElementById("run-query-modal-subtitle");
+    const runQueryModalBody = document.getElementById("run-query-modal-body");
+    let runQueryInput = document.getElementById("run-query-input");
+    let queryHistoryList = document.getElementById("query-history-list");
+    const runQueryModalCancel = document.getElementById("run-query-modal-cancel");
+    const runQueryModalConfirm = document.getElementById("run-query-modal-confirm");
     let queryModalResolve = null;
     let queryModalAccountName = "";
     let queryModalBusy = false;
+    let runQueryAccount = null;
+    let runQueryBusy = false;
     let accounts = [];
 
     function escapeHtml(value) {
@@ -438,6 +495,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
               <button data-action="login" data-id="${escapeHtml(account.id)}">登录</button>
               <button data-action="check" data-id="${escapeHtml(account.id)}">登录检查</button>
               <button data-action="test-query" data-id="${escapeHtml(account.id)}">测试查询</button>
+              <button data-action="run-query" data-id="${escapeHtml(account.id)}">执行查询</button>
               <button data-action="logout" data-id="${escapeHtml(account.id)}">退出</button>
               <button data-action="quota" data-id="${escapeHtml(account.id)}">设置剩余</button>
               ${account.is_default ? "" : `<button data-action="default" data-id="${escapeHtml(account.id)}">切换到此账号</button>`}
@@ -577,6 +635,97 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       openQueryModal();
     }
 
+    function closeRunQueryModal() {
+      if (runQueryBusy) return;
+      runQueryModalBackdrop.classList.remove("open");
+      runQueryModalBackdrop.setAttribute("aria-hidden", "true");
+      runQueryAccount = null;
+    }
+
+    async function loadQueryHistory(accountId) {
+      try {
+        const data = await request(`/api/accounts/${encodeURIComponent(accountId)}/query-history`);
+        const history = data.history || [];
+        queryHistoryList.innerHTML = history.length
+          ? history.map((item) => `<button type="button" class="query-history-item" data-question="${escapeHtml(item.question)}" title="${escapeHtml(formatTime(item.created_at))}">${escapeHtml(item.question)}</button>`).join("")
+          : '<span class="secondary">暂无记录</span>';
+      } catch (error) {
+        queryHistoryList.innerHTML = '<span class="secondary">历史记录暂时无法读取</span>';
+      }
+    }
+
+    function openRunQueryModal(account) {
+      runQueryAccount = account;
+      runQueryBusy = false;
+      runQueryModalMark.className = "modal-mark";
+      runQueryModalMark.textContent = "Q";
+      runQueryModalTitle.textContent = `执行问财查询：${account.name}`;
+      runQueryModalSubtitle.textContent = "输入自然语言查询语句，结果仅在本次窗口展示";
+      runQueryModalBody.innerHTML = `
+        <label>查询语句
+          <textarea class="query-input" id="run-query-input" maxlength="500" placeholder="例如：市盈率小于20，市值大于100亿"></textarea>
+        </label>
+        <div class="query-history">
+          <div class="query-history-title">历史查询语句（点击可填入）</div>
+          <div class="query-history-list" id="query-history-list"><span class="secondary">正在读取...</span></div>
+        </div>`;
+      runQueryInput = document.getElementById("run-query-input");
+      queryHistoryList = document.getElementById("query-history-list");
+      runQueryModalCancel.hidden = false;
+      runQueryModalConfirm.disabled = false;
+      runQueryModalConfirm.textContent = "执行查询";
+      runQueryModalBackdrop.classList.add("open");
+      runQueryModalBackdrop.setAttribute("aria-hidden", "false");
+      runQueryInput.focus();
+      loadQueryHistory(account.id);
+    }
+
+    function showRunQueryLoading(question) {
+      runQueryBusy = true;
+      runQueryModalMark.className = "modal-mark";
+      runQueryModalMark.textContent = "...";
+      runQueryModalTitle.textContent = "正在执行问财查询";
+      runQueryModalSubtitle.textContent = "请稍候，正在访问问财结果页";
+      runQueryModalBody.innerHTML = `<p class="modal-copy">${escapeHtml(question)}</p><div class="modal-loading"><span class="modal-spinner"></span>正在查询，请不要重复点击</div>`;
+      runQueryModalCancel.hidden = true;
+      runQueryModalConfirm.disabled = true;
+      runQueryModalConfirm.textContent = "查询中...";
+    }
+
+    function showRunQueryResult(result) {
+      runQueryBusy = false;
+      runQueryModalMark.className = "modal-mark success";
+      runQueryModalMark.textContent = "✓";
+      runQueryModalTitle.textContent = "问财查询结果";
+      runQueryModalSubtitle.textContent = `${result.account_name} · ${result.count} 条结果 · ${result.pages} 页`;
+      const headers = result.headers && result.headers.length
+        ? result.headers
+        : (result.rows.length ? Object.keys(result.rows[0]) : []);
+      const table = headers.length && result.rows.length
+        ? `<div class="query-result-wrap"><table class="query-result-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${result.rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+        : '<div class="empty">没有返回结果</div>';
+      runQueryModalBody.innerHTML = `<p class="modal-copy">查询语句：${escapeHtml(result.question)}</p>${table}`;
+      runQueryModalCancel.hidden = true;
+      runQueryModalConfirm.disabled = false;
+      runQueryModalConfirm.textContent = "关闭";
+      runQueryModalBackdrop.classList.add("open");
+      runQueryModalBackdrop.setAttribute("aria-hidden", "false");
+    }
+
+    function showRunQueryFailure(errorMessage) {
+      runQueryBusy = false;
+      runQueryModalMark.className = "modal-mark failure";
+      runQueryModalMark.textContent = "!";
+      runQueryModalTitle.textContent = "问财查询失败";
+      runQueryModalSubtitle.textContent = "本次查询未能完成";
+      runQueryModalBody.innerHTML = `<div class="modal-detail-value error">${escapeHtml(errorMessage)}</div>`;
+      runQueryModalCancel.hidden = true;
+      runQueryModalConfirm.disabled = false;
+      runQueryModalConfirm.textContent = "关闭";
+      runQueryModalBackdrop.classList.add("open");
+      runQueryModalBackdrop.setAttribute("aria-hidden", "false");
+    }
+
     async function request(url, options = {}) {
       const response = await fetch(url, {
         headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -635,6 +784,9 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
             { method: "POST", body: "{}" },
           );
           showQueryResult(result);
+        } else if (action === "run-query") {
+          openRunQueryModal(account);
+          return;
         } else if (action === "logout") {
           if (!confirm(`确定清理账号“${account.name}”的登录态吗？`)) return;
           await request(`/api/accounts/${encodeURIComponent(id)}/logout`, { method: "POST", body: "{}" });
@@ -726,12 +878,51 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       showQueryLoading({ name: queryModalAccountName });
       resolve(true);
     });
+    runQueryModalCancel.addEventListener("click", closeRunQueryModal);
+    runQueryModalConfirm.addEventListener("click", async () => {
+      if (runQueryBusy) return;
+      if (runQueryModalConfirm.textContent === "关闭") {
+        closeRunQueryModal();
+        return;
+      }
+      if (!runQueryAccount) return;
+      const question = runQueryInput.value.trim();
+      if (!question) {
+        runQueryInput.focus();
+        return;
+      }
+      showRunQueryLoading(question);
+      try {
+        const result = await request("/api/query", {
+          method: "POST",
+          body: JSON.stringify({ account_id: runQueryAccount.id, question }),
+        });
+        showRunQueryResult(result);
+        await loadAccounts();
+      } catch (error) {
+        showRunQueryFailure(error.message);
+        await loadAccounts();
+      }
+    });
+    runQueryModalBody.addEventListener("click", (event) => {
+      const historyButton = event.target.closest("button[data-question]");
+      if (historyButton && runQueryInput) {
+        runQueryInput.value = historyButton.dataset.question || "";
+        runQueryInput.focus();
+      }
+    });
+    runQueryModalBackdrop.addEventListener("click", (event) => {
+      if (event.target === runQueryModalBackdrop) closeRunQueryModal();
+    });
     queryModalBackdrop.addEventListener("click", (event) => {
       if (event.target === queryModalBackdrop) closeQueryModal(false);
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && queryModalBackdrop.classList.contains("open")) {
         closeQueryModal(false);
+      }
+      if (event.key === "Escape" && runQueryModalBackdrop.classList.contains("open")) {
+        closeRunQueryModal();
       }
     });
     rows.addEventListener("click", (event) => {
