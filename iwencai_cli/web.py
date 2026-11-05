@@ -156,6 +156,15 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
     .message { min-height: 22px; color: var(--muted); margin-top: 10px; }
     .message.error { color: var(--red); }
     .footnote { color: var(--muted); font-size: 12px; margin-top: 12px; }
+    .guide-heading { margin-bottom: 14px; }
+    .guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .guide-item { min-width: 0; padding: 14px 16px; background: #0d1117; }
+    .guide-item h3 { margin: 0 0 7px; font-size: 14px; }
+    .guide-item p, .guide-list { color: var(--muted); font-size: 12px; }
+    .guide-item p + p { margin-top: 6px; }
+    .guide-list { margin: 0; padding-left: 18px; }
+    .guide-list li + li { margin-top: 5px; }
+    .guide-code { display: inline-block; margin-top: 7px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--accent-dark); background: var(--panel); font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 
     .modal-backdrop {
       position: fixed;
@@ -284,6 +293,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
       .form-grid button { width: 100%; }
       .summary { grid-template-columns: 1fr 1fr; }
       .panel { padding: 12px; }
+      .guide-grid { grid-template-columns: 1fr; gap: 16px; }
       .modal-detail-value { max-width: 58%; }
       .query-run-modal { width: 100%; }
     }
@@ -347,6 +357,48 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
         </table>
       </div>
       <p class="footnote">每个账号使用独立的浏览器 profile 和登录态。登录检查只验证登录态，不消耗次数；查询会消耗 1 次额度，历史只保存查询语句。</p>
+    </section>
+
+    <section class="panel" aria-labelledby="guide-title">
+      <div class="guide-heading">
+        <h2 id="guide-title">操作文档</h2>
+      </div>
+      <div class="guide-grid">
+        <div class="guide-item">
+          <h3>启动服务</h3>
+          <p>在项目根目录运行命令，或双击 Windows 启动脚本：</p>
+          <code class="guide-code">iwencai-server</code>
+          <p>服务地址：<code class="guide-code">http://127.0.0.1:8765/</code></p>
+        </div>
+        <div class="guide-item">
+          <h3>首次登录</h3>
+          <ol class="guide-list">
+            <li>填写账号名称、备注和每日额度。</li>
+            <li>点击“添加并登录”，在弹出的 Chrome 窗口扫码。</li>
+            <li>登录成功后，账号会保存到列表并自动成为默认账号。</li>
+          </ol>
+        </div>
+        <div class="guide-item">
+          <h3>账号操作</h3>
+          <ul class="guide-list">
+            <li>“检查”只验证登录状态，不消耗额度。</li>
+            <li>“登录”用于登录态失效后重新扫码。</li>
+            <li>“设为默认”切换默认账号，“额度”修改当天剩余次数。</li>
+            <li>“退出”和“删除”会清理当前账号的登录态。</li>
+          </ul>
+        </div>
+        <div class="guide-item">
+          <h3>执行查询</h3>
+          <p>在账号行选择“执行查询”，输入自然语言选股条件。每次真正开始的查询扣除 1 次额度，自动翻页不额外扣次。</p>
+          <p>默认账号额度用尽或登录失效时，服务会自动切换到其他已登录且有剩余额度的账号。</p>
+        </div>
+        <div class="guide-item">
+          <h3>接口调用</h3>
+          <p>本机其他项目可以直接调用查询接口：</p>
+          <code class="guide-code">POST /api/query</code>
+          <p>完整接入文档可通过 <code class="guide-code">GET /api/docs/local-api</code> 获取。</p>
+        </div>
+      </div>
     </section>
   </main>
 
