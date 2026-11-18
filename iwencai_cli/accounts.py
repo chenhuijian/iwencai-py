@@ -15,7 +15,8 @@ from . import DEFAULT_AUTH_DIR
 from .auth import has_saved_auth
 
 
-DEFAULT_QUOTA_LIMIT = 100
+DEFAULT_QUOTA_LIMIT = 50
+LEGACY_DEFAULT_QUOTA_LIMIT = 100
 BEIJING_TZ = timezone(timedelta(hours=8))
 APP_DATA_DIR = DEFAULT_AUTH_DIR.parent
 ACCOUNT_ROOT = APP_DATA_DIR / "accounts"
@@ -406,6 +407,7 @@ class AccountStore:
             return [], ""
         try:
             data = json.loads(self.registry_path.read_text(encoding="utf-8"))
+            registry_version = int(data.get("version") or 1)
             accounts = [AccountRecord.from_dict(item) for item in data.get("accounts", [])]
             default_id = str(data.get("default_account_id") or "")
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -413,6 +415,13 @@ class AccountStore:
         if _is_legacy_default_registry(accounts, default_id):
             # 上一版会自动生成 default/主账号；保留其 auth 目录，但要求新版本重新通过管理台登记。
             return [], ""
+        migrated = registry_version < 2
+        if migrated:
+            for account in accounts:
+                if account.quota_limit == LEGACY_DEFAULT_QUOTA_LIMIT:
+                    account.quota_limit = DEFAULT_QUOTA_LIMIT
+        if migrated:
+            self._save_unlocked(accounts, default_id)
         return accounts, default_id
 
     def _save_if_needed_unlocked(
@@ -426,7 +435,7 @@ class AccountStore:
     def _save_unlocked(self, accounts: list[AccountRecord], default_id: str) -> None:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "default_account_id": default_id,
             "accounts": [asdict(account) for account in accounts],
         }

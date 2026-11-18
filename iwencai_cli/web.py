@@ -322,7 +322,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
           <input name="notes" maxlength="500" placeholder="可选">
         </label>
         <label>每日额度
-          <input name="quota_limit" type="number" min="1" value="100" required>
+          <input name="quota_limit" type="number" min="1" value="50" required>
         </label>
         <button class="primary" type="submit">添加并登录</button>
       </form>
@@ -902,7 +902,7 @@ ACCOUNT_MANAGER_HTML = r'''<!doctype html>
         });
         const account = created.account;
         formElement.reset();
-        formElement.querySelector('[name="quota_limit"]').value = "100";
+        formElement.querySelector('[name="quota_limit"]').value = "50";
         await loadAccounts();
         showMessage(`账号已创建，正在打开“${account.name}”的登录窗口，请扫码登录...`);
         await request(`/api/accounts/${encodeURIComponent(account.id)}/login`, {

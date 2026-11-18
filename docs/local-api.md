@@ -107,9 +107,9 @@ Invoke-RestMethod http://127.0.0.1:8765/api/accounts
       "auth_state": "已登录",
       "quota": {
         "date": "2026-09-22",
-        "limit": 100,
+        "limit": 50,
         "used": 12,
-        "remaining": 88,
+        "remaining": 38,
         "reset_at": "2026-09-23T00:00:00+08:00"
       }
     }
@@ -130,7 +130,7 @@ Content-Type: application/json
 {
   "name": "策略账号 A",
   "notes": "用于策略项目",
-  "quota_limit": 100
+  "quota_limit": 50
 }
 ```
 
@@ -172,7 +172,7 @@ Content-Type: application/json
 
 ```json
 {
-  "remaining": 80
+  "remaining": 40
 }
 ```
 
@@ -448,9 +448,9 @@ Invoke-RestMethod `
   "account_name": "主账号",
   "quota": {
     "date": "2026-09-22",
-    "limit": 100,
+    "limit": 50,
     "used": 13,
-    "remaining": 87,
+    "remaining": 37,
     "reset_at": "2026-09-23T00:00:00+08:00"
   },
   "question": "上证50",

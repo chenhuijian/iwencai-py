@@ -202,7 +202,7 @@ class QueryRequest(AuthRequest):
 class AccountCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     notes: str = Field(default="", max_length=500)
-    quota_limit: int = Field(default=100, ge=1)
+    quota_limit: int = Field(default=50, ge=1)
 
 
 class AccountUpdateRequest(BaseModel):

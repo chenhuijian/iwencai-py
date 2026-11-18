@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 import unittest
@@ -161,6 +162,34 @@ class StageOneAccountTests(unittest.TestCase):
 
         self.assertEqual([item["question"] for item in history], ["市盈率小于20", "上证50"])
         self.assertEqual(set(history[0]), {"question", "created_at"})
+
+    def test_default_quota_is_50_and_old_default_migrates(self) -> None:
+        account = self.store.create("新账号")
+        self.assertEqual(account.quota_limit, 50)
+        self.assertEqual(server.AccountCreateRequest(name="新账号").quota_limit, 50)
+
+        old_account = self.store.create("旧账号", quota_limit=100)
+        registry = json.loads(self.store.registry_path.read_text(encoding="utf-8"))
+        registry["version"] = 1
+        self.store.registry_path.write_text(
+            json.dumps(registry, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        quota = self.store.get_quota(old_account.id)
+        self.store._write_quota_unlocked(
+            old_account,
+            {"date": quota["date"], "used": 12},
+        )
+
+        migrated_quota = self.store.get_quota(old_account.id)
+
+        self.assertEqual(migrated_quota["limit"], 50)
+        self.assertEqual(migrated_quota["used"], 12)
+        self.assertEqual(migrated_quota["remaining"], 38)
+        self.assertEqual(self.store.get(old_account.id).quota_limit, 50)
+
+        self.store.update(old_account.id, quota_limit=100)
+        self.assertEqual(self.store.get(old_account.id).quota_limit, 100)
 
 
 if __name__ == "__main__":
